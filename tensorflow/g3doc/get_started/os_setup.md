@@ -293,7 +293,7 @@ packages needed by TensorFlow.
 *  Activate the conda environment and install TensorFlow in it.
 *  After the install you will activate the conda environment each time you
    want to use TensorFlow.
-*  Optionally install ipython and other packages into the conda environment
+*  Optionally install ipython and other packages into the conda environment.
 
 Install Anaconda:
 
@@ -885,10 +885,10 @@ remove the `_python_build` directory before running `bazel test`.
 
 ## Train your first TensorFlow neural net model
 
-Starting from the root of your source tree, run:
+Start by cloning the [TensorFlow models repo](https://github.com/tensorflow/models) from GitHub. Run the following commands:
 
 ```bash
-$ cd tensorflow/models/image/mnist
+$ cd models/tutorials/image/mnist
 $ python convolutional.py
 Successfully downloaded train-images-idx3-ubyte.gz 9912422 bytes.
 Successfully downloaded train-labels-idx1-ubyte.gz 28881 bytes.
