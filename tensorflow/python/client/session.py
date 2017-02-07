@@ -103,7 +103,7 @@ _REGISTERED_EXPANSIONS = [
          [fetch.indices, fetch.values, fetch.dense_shape],
          lambda fetched_vals: sparse_tensor.SparseTensorValue(*fetched_vals)),
      lambda feed, feed_val: list(zip(
-         [feed.indices, feed.values, feed.shape], feed_val)),
+         [feed.indices, feed.values, feed.dense_shape], feed_val)),
      lambda feed: [feed.indices, feed.values, feed.dense_shape]),
     # IndexedSlices are fetched as IndexedSlicesValues. They can be fed
     # IndexedSlicesValues or normal tuples.
@@ -794,7 +794,7 @@ class BaseSession(SessionInterface):
     b = array_ops.placeholder(dtypes.float32, shape=[])
     c = array_ops.placeholder(dtypes.float32, shape=[])
     r1 = math_ops.add(a, b)
-    r2 = math_ops.mul(r1, c)
+    r2 = math_ops.multiply(r1, c)
 
     h = sess.partial_run_setup([r1, r2], [a, b, c])
     res = sess.partial_run(h, r1, feed_dict={a: 1, b: 2})
@@ -1308,7 +1308,12 @@ class InteractiveSession(BaseSession):
       config: (Optional) `ConfigProto` proto used to configure the session.
     """
     if not config:
-      config = config_pb2.ConfigProto()
+      # If config is not provided, choose some reasonable defaults for
+      # interactive use:
+      #
+      #   - Grow GPU memory as needed at the cost of fragmentation.
+      gpu_options = config_pb2.GPUOptions(allow_growth=True)
+      config = config_pb2.ConfigProto(gpu_options=gpu_options)
     # Interactive sessions always place pruned graphs.
     config.graph_options.place_pruned_graph = True
 

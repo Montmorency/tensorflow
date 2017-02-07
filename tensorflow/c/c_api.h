@@ -100,6 +100,11 @@ typedef enum {
   TF_RESOURCE = 20,
 } TF_DataType;
 
+// TF_DataTypeSize returns the sizeof() for the underlying type corresponding
+// to the given TF_DataType enum value. Returns 0 for variable length types
+// (eg. TF_STRING) or on failure.
+extern size_t TF_DataTypeSize(TF_DataType dt);
+
 // --------------------------------------------------------------------------
 // TF_Code holds an error code.  The enum values here are identical to
 // corresponding values in error_codes.proto.
@@ -155,7 +160,7 @@ extern const char* TF_Message(const TF_Status* s);
 // By default, TF_Buffer itself does not do any memory management of the
 // pointed-to block.  If need be, users of this struct should specify how to
 // deallocate the block by setting the `data_deallocator` function pointer.
-typedef struct {
+typedef struct TF_Buffer {
   const void* data;
   size_t length;
   void (*data_deallocator)(void* data, size_t length);
@@ -589,7 +594,7 @@ typedef enum {
 } TF_AttrType;
 
 // TF_AttrMetadata describes the value of an attribute on an operation.
-typedef struct {
+typedef struct TF_AttrMetadata {
   // A boolean: 1 if the attribute value is a list, 0 otherwise.
   unsigned char is_list;
 
@@ -796,7 +801,42 @@ extern void TF_DeleteImportGraphDefOptions(TF_ImportGraphDefOptions* opts);
 extern void TF_ImportGraphDefOptionsSetPrefix(TF_ImportGraphDefOptions* opts,
                                               const char* prefix);
 
+// Set any imported nodes with input `src_name:src_index` to have that input
+// replaced with `dst`. `src_name` refers to a node in the graph to be imported,
+// `dst` references a node already existing in the graph being imported into.
+extern void TF_ImportGraphDefOptionsAddInputMapping(
+    TF_ImportGraphDefOptions* opts, const char* src_name, int src_index,
+    TF_Output dst);
+
+// Cause the imported graph to have a control dependency on `oper`. `oper`
+// should exist in the graph being imported into.
+extern void TF_ImportGraphDefOptionsAddControlDependency(
+    TF_ImportGraphDefOptions* opts, TF_Operation* oper);
+
+// Add an output in `graph_def` to be returned via the `return_outputs` output
+// parameter of TF_GraphImportGraphDef(). If the output is remapped via an input
+// mapping, the corresponding existing tensor in `graph` will be returned.
+extern void TF_ImportGraphDefOptionsAddReturnOutput(
+    TF_ImportGraphDefOptions* opts, const char* oper_name, int index);
+
+// Returns the number of return outputs added via
+// TF_ImportGraphDefOptionsAddReturnOutput().
+extern int TF_ImportGraphDefOptionsNumReturnOutputs(
+    const TF_ImportGraphDefOptions* opts);
+
 // Import the graph serialized in `graph_def` into `graph`.
+//
+// `num_return_outputs` must be the number of return outputs added (i.e. the
+// result of TF_ImportGraphDefOptionsNumReturnOutputs()).  If
+// `num_return_outputs` is non-zero, `return_outputs` must be of length
+// `num_return_outputs`. Otherwise it can be null.
+extern void TF_GraphImportGraphDefWithReturnOutputs(
+    TF_Graph* graph, const TF_Buffer* graph_def,
+    const TF_ImportGraphDefOptions* options, TF_Output* return_outputs,
+    int num_return_outputs, TF_Status* status);
+
+// Import the graph serialized in `graph_def` into `graph`.
+// Convenience function for when no return outputs have been added.
 extern void TF_GraphImportGraphDef(TF_Graph* graph, const TF_Buffer* graph_def,
                                    const TF_ImportGraphDefOptions* options,
                                    TF_Status* status);
@@ -829,6 +869,30 @@ typedef struct TF_Session TF_Session;
 // Does not take ownership of opts.
 extern TF_Session* TF_NewSession(TF_Graph* graph, const TF_SessionOptions* opts,
                                  TF_Status* status);
+
+#ifndef __ANDROID__
+// TODO(ashankar): Remove the __ANDROID__ guard. This will require ensuring that
+// the tensorflow/cc/saved_model:loader build target is Android friendly.
+
+// This function creates a new TF_Session (which is created on success) using
+// `session_options`, and then initializes state (restoring tensors and other
+// assets) using `run_options`.
+//
+// Any NULL and non-NULL value combinations for (`run_options, `meta_graph_def`)
+// are valid.
+//
+// - `export_dir` must be set to the path of the exported SavedModel.
+// - `tags` must include the set of tags used to identify one MetaGraphDef in
+//    the SavedModel.
+// - `graph` must be a graph newly allocated with TF_NewGraph().
+//
+// If successful, populates `graph` with the contents of the Graph and
+// `meta_graph_def` with the MetaGraphDef of the loaded model.
+TF_Session* TF_LoadSessionFromSavedModel(
+    const TF_SessionOptions* session_options, const TF_Buffer* run_options,
+    const char* export_dir, const char* const* tags, int tags_len,
+    TF_Graph* graph, TF_Buffer* meta_graph_def, TF_Status* status);
+#endif  // __ANDROID__
 
 // Close a session.
 //

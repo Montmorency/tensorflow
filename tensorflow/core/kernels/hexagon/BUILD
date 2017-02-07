@@ -72,12 +72,14 @@ tf_cc_test(
 tf_kernel_library(
     name = "graph_transferer",
     srcs = [
+        "graph_transfer_utils.cc",
         "graph_transferer.cc",
         "hexagon_control_wrapper.cc",
         "hexagon_ops_definitions.cc",
         "i_graph_transfer_ops_definitions.cc",
     ],
     hdrs = [
+        "graph_transfer_utils.h",
         "graph_transferer.h",
         "hexagon_control_wrapper.h",
         "hexagon_ops_definitions.h",
@@ -86,6 +88,7 @@ tf_kernel_library(
     ],
     data = ["//tensorflow/core:example_parser_configuration_testdata"],
     deps = [
+        "//tensorflow/cc:cc_ops",
         "//tensorflow/core",
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework",

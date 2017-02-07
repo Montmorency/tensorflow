@@ -1,6 +1,6 @@
 licenses(["restricted"])
 
-load("//tensorflow:tensorflow.bzl", "if_cuda")
+load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda_is_configured")
 
 cc_library(
     name = "stream_executor",
@@ -15,13 +15,6 @@ cc_library(
         exclude = [
             "**/*_test.cc",
         ],
-    ) + if_cuda(
-        glob(
-            [
-                "cuda/*.cc",
-            ],
-            exclude = ["cuda/cuda_platform_id.cc"],
-        ),
     ),
     hdrs = glob([
         "*.h",
@@ -31,13 +24,6 @@ cc_library(
         "lib/gtl/*.h",
         "platform/**/*.h",
     ]),
-    data = [
-        "//tensorflow/core:cuda",
-        "@local_config_cuda//cuda:cublas",
-        "@local_config_cuda//cuda:cudnn",
-        "@local_config_cuda//cuda:cufft",
-        "@local_config_cuda//cuda:curand",
-    ],
     linkopts = [
         "-ldl",
     ],
@@ -46,5 +32,34 @@ cc_library(
         "//tensorflow/core:lib",
         "@local_config_cuda//cuda:cuda_headers",
     ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "cuda_platform",
+    srcs = if_cuda_is_configured(
+        glob(
+            [
+                "cuda/*.cc",
+            ],
+            exclude = ["cuda/cuda_platform_id.cc"],
+        ),
+    ),
+    linkopts = [
+        "-ldl",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":stream_executor",
+        "//tensorflow/core:lib",
+        "@local_config_cuda//cuda:cuda_headers",
+    ] + if_cuda_is_configured([
+        "//tensorflow/core:cuda",
+        "@local_config_cuda//cuda:cublas",
+        "@local_config_cuda//cuda:cuda_driver",
+        "@local_config_cuda//cuda:cudnn",
+        "@local_config_cuda//cuda:cufft",
+        "@local_config_cuda//cuda:curand",
+    ]),
     alwayslink = 1,
 )
