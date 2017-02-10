@@ -57,6 +57,7 @@ from tensorflow.python.ops import variables
 from tensorflow.python.training import moving_averages
 from tensorflow.python.training import optimizer
 from tensorflow.python.training import saver
+from tensorflow.python.platform import tf_logging as logging
 
 
 class MovingAverageOptimizer(optimizer.Optimizer):
@@ -136,11 +137,17 @@ class MovingAverageOptimizer(optimizer.Optimizer):
       var_list = saver.BaseSaverBuilder.OpListToDict(var_list)
     # Now swap variables and moving averages
     swapped_var_list = {}
+    logging.info('HL var_list: {}\n'.format(var_list))
     for k, v in six.iteritems(var_list):
-      v_swap = self._variable_map.get(v.op.name, None)
+      logging.info('HL k v: {} {}'.format(k,v))
+      try:
+        v_swap = self._variable_map.get(v[0].op.name, None)
+      except ValueError:
+        v_swap = self._variable_map.get(v.op.name, None)
       if v_swap:
         swapped_var_list[k] = v_swap
       else:
         swapped_var_list[k] = v
     # Build the swapping saver.
-    return saver.Saver(swapped_var_list, name=name, **kwargs)
+    logging.info('HL swapped_var_list: {}\n'.format(swapped_var_list))
+    return saver.Saver(swapped_var_list, name=name,  **kwargs)

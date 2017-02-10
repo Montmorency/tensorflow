@@ -936,12 +936,15 @@ class BaseEstimator(
 
       scaffold = model_fn_ops.scaffold or monitored_session.Scaffold()
       if not (scaffold.saver or ops.get_collection(ops.GraphKeys.SAVERS)):
+        saver_dict = {'sharded':True, 'max_to_keep':self._config.keep_checkpoint_max, 'defer_build':False}
+        logging.info("HL:create moving average saver.")
         ops.add_to_collection(
             ops.GraphKeys.SAVERS,
-            saver.Saver(
-                sharded=True,
-                max_to_keep=self._config.keep_checkpoint_max,
-                defer_build=True))
+            self.params["optimizer"].swapping_saver(**saver_dict))
+            #HL 021017 saver.Saver(
+            #    sharded=True,
+            #    max_to_keep=self._config.keep_checkpoint_max,
+            #    defer_build=True))
 
       chief_hooks = []
       if (self._config.save_checkpoints_secs or
