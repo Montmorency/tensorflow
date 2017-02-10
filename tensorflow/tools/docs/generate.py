@@ -29,9 +29,11 @@ from tensorflow.tools.common import public_api
 from tensorflow.tools.common import traverse
 from tensorflow.tools.docs import doc_generator_visitor
 from tensorflow.tools.docs import parser
+from tensorflow.tools.docs import py_guide_parser
 
 
-def write_docs(output_dir, base_dir, duplicate_of, duplicates, index, tree):
+def write_docs(output_dir, base_dir, duplicate_of, duplicates, index, tree,
+               reverse_index, guide_index):
   """Write previously extracted docs to disk.
 
   Write a docs page for each symbol in `index` to a tree of docs at
@@ -56,6 +58,8 @@ def write_docs(output_dir, base_dir, duplicate_of, duplicates, index, tree):
       of "@{symbol}" references.
     tree: A `dict` mapping a fully qualified name to the names of all its
       members. Used to populate the members section of a class or module page.
+    reverse_index: A `dict` mapping object ids to fully qualified names.
+    guide_index: A `dict` mapping symbol name strings to GuideRef.
   """
   # Make output_dir.
   try:
@@ -89,6 +93,8 @@ def write_docs(output_dir, base_dir, duplicate_of, duplicates, index, tree):
                                         duplicates=duplicates,
                                         index=index,
                                         tree=tree,
+                                        reverse_index=reverse_index,
+                                        guide_index=guide_index,
                                         base_dir=base_dir)
 
     # TODO(deannarubin): use _tree to generate sidebar information.
@@ -107,14 +113,13 @@ def write_docs(output_dir, base_dir, duplicate_of, duplicates, index, tree):
     # TODO(deannarubin): write sidebar file?
 
   # Write a global index containing all full names with links.
-  with open(os.path.join(output_dir, 'full_index.md'), 'w') as f:
-    f.write(parser.generate_global_index('TensorFlow', 'tensorflow',
-                                         index, duplicate_of))
+  with open(os.path.join(output_dir, 'index.md'), 'w') as f:
+    f.write(parser.generate_global_index('TensorFlow', index, duplicate_of))
 
 
 def extract():
   """Extract docs from tf namespace and write them to disk."""
-  visitor = doc_generator_visitor.DocGeneratorVisitor()
+  visitor = doc_generator_visitor.DocGeneratorVisitor('tf')
   api_visitor = public_api.PublicAPIVisitor(visitor)
 
   # Access something in contrib so tf.contrib is properly loaded (it's hidden
@@ -180,7 +185,60 @@ def extract():
   return visitor
 
 
-def write(output_dir, base_dir, visitor):
+class GuideRef(object):
+
+  def __init__(self, base_name, title, section_title, section_tag):
+    self.url = 'api_guides/python/' + (
+        ('%s#%s' % (base_name, section_tag)) if section_tag else base_name)
+    self.link_text = (('%s > %s' % (title, section_title))
+                      if section_title else title)
+
+  def make_md_link(self, url_prefix):
+    return '[%s](%s%s)' % (self.link_text, url_prefix, self.url)
+
+
+class GenerateGuideIndex(py_guide_parser.PyGuideParser):
+  """Turn guide files into an index from symbol name to a list of GuideRefs."""
+
+  def __init__(self):
+    self.index = {}
+    py_guide_parser.PyGuideParser.__init__(self)
+
+  def process(self, full_path, base_name):
+    """Index a file, reading from `full_path`, with `base_name` as the link."""
+    self.full_path = full_path
+    self.base_name = base_name
+    self.title = None
+    self.section_title = None
+    self.section_tag = None
+    py_guide_parser.PyGuideParser.process(self, full_path)
+
+  def process_title(self, _, title):
+    if self.title is None:  # only use the first title
+      self.title = title
+
+  def process_section(self, _, section_title, tag):
+    self.section_title = section_title
+    self.section_tag = tag
+
+  def process_line(self, _, line):
+    """Index @{symbol} references as in the current file & section."""
+    for match in parser.SYMBOL_REFERENCE_RE.finditer(line):
+      val = self.index.get(match.group(1), [])
+      val.append(GuideRef(
+          self.base_name, self.title, self.section_title, self.section_tag))
+      self.index[match.group(1)] = val
+
+
+def build_guide_index(guide_src_dir):
+  """Return dict: symbol name -> GuideRef from the files in `guide_src_dir`."""
+  index_generator = GenerateGuideIndex()
+  for full_path, base_name in py_guide_parser.md_files_in_dir(guide_src_dir):
+    index_generator.process(full_path, base_name)
+  return index_generator.index
+
+
+def write(output_dir, base_dir, guide_index, visitor):
   """Write documentation for an index in a `DocGeneratorVisitor` to disk.
 
   This function will create `output_dir` if it doesn't exist, and write
@@ -190,12 +248,13 @@ def write(output_dir, base_dir, visitor):
     output_dir: The directory to write documentation to. Must not exist.
     base_dir: The base dir of the library `visitor` has traversed. This is used
       to compute relative paths for file references.
+    guide_index: A `dict` mapping symbol name strings to GuideRef.
     visitor: A `DocGeneratorVisitor` that has traversed a library located at
       `base_dir`.
   """
-  duplicate_of, duplicates = visitor.find_duplicates()
   write_docs(output_dir, os.path.abspath(base_dir),
-             duplicate_of, duplicates, visitor.index, visitor.tree)
+             visitor.duplicate_of, visitor.duplicates,
+             visitor.index, visitor.tree, visitor.reverse_index, guide_index)
 
 
 if __name__ == '__main__':
@@ -208,12 +267,21 @@ if __name__ == '__main__':
       help='Directory to write docs to. Must not exist.'
   )
 
+  argument_parser.add_argument(
+      '--guide_src_dir',
+      type=str,
+      default=None,
+      required=True,
+      help='Directory with the source for the Python guides.'
+  )
+
   # This doc generator works on the TensorFlow codebase. Since this script lives
-  # at tensorflow/tools/docs, we can compute the base directory (three levels
-  # up), which is valid unless we're trying to apply this to a different code
-  # base, or are moving the script around.
+  # at tensorflow/tools/docs, and all code is defined somewhere inside
+  # tensorflow/, we can compute the base directory (two levels up), which is
+  # valid unless we're trying to apply this to a different code base, or are
+  # moving the script around.
   script_dir = os.path.dirname(inspect.getfile(inspect.currentframe()))
-  default_base_dir = os.path.join(script_dir, '..', '..', '..')
+  default_base_dir = os.path.join(script_dir, '..', '..')
 
   argument_parser.add_argument(
       '--base_dir',
@@ -230,4 +298,5 @@ if __name__ == '__main__':
                        'Cowardly refusing to wipe it, please do that yourself.'
                        % flags.output_dir)
 
-  write(flags.output_dir, flags.base_dir, extract())
+  write(flags.output_dir, flags.base_dir,
+        build_guide_index(flags.guide_src_dir), extract())
