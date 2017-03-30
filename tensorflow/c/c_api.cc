@@ -135,6 +135,9 @@ class TF_ManagedBuffer : public TensorBuffer {
     proto->set_requested_bytes(rb);
     proto->set_allocator_name(tensorflow::cpu_allocator()->Name());
   }
+
+  // Prevents input forwarding from mutating this buffer.
+  bool OwnsMemory() const override { return false; }
 };
 
 void* allocate_tensor(const char* operation, size_t len) {
@@ -543,9 +546,8 @@ static void TF_Run_Helper(
 
   if (handle == nullptr) {
     RunOptions run_options_proto;
-    if (run_options != nullptr &&
-        !run_options_proto.ParseFromArray(run_options->data,
-                                          run_options->length)) {
+    if (run_options != nullptr && !run_options_proto.ParseFromArray(
+                                      run_options->data, run_options->length)) {
       status->status = InvalidArgument("Unparseable RunOptions proto");
       return;
     }
@@ -715,7 +717,7 @@ TF_Buffer* TF_GetAllOpList() {
     *(op_list.add_op()) = op;
   }
   TF_Buffer* ret = TF_NewBuffer();
-  MessageToBuffer(op_list, ret);
+  TF_CHECK_OK(MessageToBuffer(op_list, ret));
   return ret;
 }
 
@@ -731,7 +733,7 @@ extern "C" {
 struct TF_Graph {
   TF_Graph()
       : graph(OpRegistry::Global()),
-        refiner(graph.op_registry()),
+        refiner(graph.versions().producer(), graph.op_registry()),
         num_sessions(0),
         delete_requested(false),
         parent(nullptr),
@@ -1166,7 +1168,7 @@ static TF_Operation* TF_FinishOperationLocked(TF_OperationDescription* desc,
       // TODO(b/28152992): Enable returning the result of this
       // code-path once we have converted all python shape functions
       // to call their C++ versions.
-      desc->graph->refiner.AddNode(ret);
+      desc->graph->refiner.AddNode(ret).IgnoreError();
 
       // Add the node to the name-to-node mapping.
       desc->graph->name_map[ret->name()] = ret;
@@ -1702,6 +1704,12 @@ void TF_ImportGraphDefOptionsAddInputMapping(TF_ImportGraphDefOptions* opts,
   opts->opts.input_map[TensorId(src_name, src_index)] = ToTensorId(dst);
 }
 
+void TF_ImportGraphDefOptionsRemapControlDependency(
+    TF_ImportGraphDefOptions* opts, const char* src_name, TF_Operation* dst) {
+  opts->opts.input_map[TensorId(src_name, tensorflow::Graph::kControlSlot)] =
+      TensorId(dst->node.name(), tensorflow::Graph::kControlSlot);
+}
+
 extern void TF_ImportGraphDefOptionsAddControlDependency(
     TF_ImportGraphDefOptions* opts, TF_Operation* oper) {
   opts->opts.control_dependencies.push_back(oper->node.name());
@@ -2111,11 +2119,19 @@ TF_Session* TF_NewSession(TF_Graph* graph, const TF_SessionOptions* opt,
   }
 }
 
-#ifndef __ANDROID__
 TF_Session* TF_LoadSessionFromSavedModel(
     const TF_SessionOptions* session_options, const TF_Buffer* run_options,
     const char* export_dir, const char* const* tags, int tags_len,
     TF_Graph* graph, TF_Buffer* meta_graph_def, TF_Status* status) {
+// TODO(ashankar): Remove the __ANDROID__ guard. This will require ensuring that
+// the tensorflow/cc/saved_model:loader build target is Android friendly.
+#ifdef __ANDROID__
+  status->status = tensorflow::errors::Unimplemented(
+      "Loading a SavedModel is not supported in Android. File a bug at "
+      "https://github.com/tensorflow/tensorflow/issues if this feature is "
+      "important to you");
+  return nullptr;
+#else
   mutex_lock l(graph->mu);
 
   if (!graph->name_map.empty()) {
@@ -2124,9 +2140,8 @@ TF_Session* TF_LoadSessionFromSavedModel(
   }
 
   RunOptions run_options_proto;
-  if (run_options != nullptr &&
-      !run_options_proto.ParseFromArray(run_options->data,
-                                        run_options->length)) {
+  if (run_options != nullptr && !run_options_proto.ParseFromArray(
+                                    run_options->data, run_options->length)) {
     status->status = InvalidArgument("Unparseable RunOptions proto");
     return nullptr;
   }
@@ -2164,8 +2179,8 @@ TF_Session* TF_LoadSessionFromSavedModel(
   graph->num_sessions += 1;
   session->last_num_graph_nodes = graph->graph.num_node_ids();
   return session;
-}
 #endif  // __ANDROID__
+}
 
 void TF_CloseSession(TF_Session* s, TF_Status* status) {
   status->status = s->session->Close();
@@ -2295,6 +2310,11 @@ void TF_SessionPRunSetup(TF_Session* session, const TF_Output* inputs,
     memcpy(buf, new_handle.c_str(), new_handle.size() + 1);
     *handle = buf;
   }
+}
+
+void TF_DeletePRunHandle(const char* handle) {
+  delete[] handle;
+  // TODO(suharshs): Free up any resources held by the partial run state.
 }
 
 void TF_SessionPRun(TF_Session* session, const char* handle,

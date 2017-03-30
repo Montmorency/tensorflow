@@ -73,7 +73,7 @@ def _embeddings_from_arguments(column,
         shape=[args.vocab_size],
         dtype=dtypes.float32,
         initializer=args.initializer,
-        trainable=trainable,
+        trainable=(trainable and args.trainable),
         collections=weight_collections)
 
     return embedding_ops.scattered_embedding_lookup_sparse(
@@ -108,7 +108,7 @@ def _embeddings_from_arguments(column,
           shape=shape,
           dtype=dtypes.float32,
           initializer=args.initializer,
-          trainable=trainable,
+          trainable=(trainable and args.trainable),
           collections=weight_collections)
       graph.add_to_collection(shared_embedding_collection_name, embeddings)
   else:
@@ -117,7 +117,7 @@ def _embeddings_from_arguments(column,
         shape=[args.vocab_size, args.dimension],
         dtype=dtypes.float32,
         initializer=args.initializer,
-        trainable=trainable,
+        trainable=(trainable and args.trainable),
         collections=weight_collections)
 
   if isinstance(embeddings, variables.Variable):
@@ -144,6 +144,7 @@ def _input_from_feature_columns(columns_to_tensors,
                                 output_rank,
                                 default_name):
   """Implementation of `input_from(_sequence)_feature_columns`."""
+  columns_to_tensors = columns_to_tensors.copy()
   check_feature_columns(feature_columns)
   with variable_scope.variable_scope(scope,
                                      default_name=default_name,
@@ -189,7 +190,7 @@ def input_from_feature_columns(columns_to_tensors,
                                weight_collections=None,
                                trainable=True,
                                scope=None):
-  """A tf.contrib.layer style input layer builder based on FeatureColumns.
+  """A tf.contrib.layers style input layer builder based on FeatureColumns.
 
   Generally a single example in training data is described with feature columns.
   At the first layer of the model, this column oriented data should be converted
@@ -226,7 +227,7 @@ def input_from_feature_columns(columns_to_tensors,
     columns_to_tensors: A mapping from feature column to tensors. 'string' key
       means a base feature (not-transformed). It can have FeatureColumn as a
       key too. That means that FeatureColumn is already transformed by input
-      pipeline. For example, `inflow` may have handled transformations.
+      pipeline.
     feature_columns: A set containing all the feature columns. All items in the
       set should be instances of classes derived by FeatureColumn.
     weight_collections: List of graph collections to which weights are added.
@@ -268,7 +269,7 @@ def sequence_input_from_feature_columns(columns_to_tensors,
     columns_to_tensors: A mapping from feature column to tensors. 'string' key
       means a base feature (not-transformed). It can have FeatureColumn as a
       key too. That means that FeatureColumn is already transformed by input
-      pipeline. For example, `inflow` may have handled transformations.
+      pipeline.
     feature_columns: A set containing all the feature columns. All items in the
       set should be instances of classes derived by FeatureColumn.
     weight_collections: List of graph collections to which weights are added.
@@ -422,14 +423,15 @@ def joint_weighted_sum_from_feature_columns(columns_to_tensors,
   Returns:
     A tuple containing:
 
-      * A Tensor which represents predictions of a linear model.
-      * A list of Variables storing the weights.
-      * A Variable which is used for bias.
+    * A Tensor which represents predictions of a linear model.
+    * A list of Variables storing the weights.
+    * A Variable which is used for bias.
 
   Raises:
     ValueError: if FeatureColumn cannot be used for linear predictions.
 
   """
+  columns_to_tensors = columns_to_tensors.copy()
   check_feature_columns(feature_columns)
   with variable_scope.variable_scope(
       scope,
@@ -471,7 +473,7 @@ def weighted_sum_from_feature_columns(columns_to_tensors,
                                       weight_collections=None,
                                       trainable=True,
                                       scope=None):
-  """A tf.contrib.layer style linear prediction builder based on FeatureColumns.
+  """A tf.contrib.layers style linear prediction builder based on FeatureColumn.
 
   Generally a single example in training data is described with feature columns.
   This function generates weighted sum for each num_outputs. Weighted sum refers
@@ -518,6 +520,7 @@ def weighted_sum_from_feature_columns(columns_to_tensors,
   Raises:
     ValueError: if FeatureColumn cannot be used for linear predictions.
   """
+  columns_to_tensors = columns_to_tensors.copy()
   check_feature_columns(feature_columns)
   with variable_scope.variable_scope(
       scope,
@@ -684,8 +687,8 @@ def transform_features(features, feature_columns):
   Returns:
     A `dict` mapping FeatureColumn to `Tensor` and `SparseTensor` values.
   """
-  check_feature_columns(feature_columns)
   columns_to_tensor = features.copy()
+  check_feature_columns(feature_columns)
   transformer = _Transformer(columns_to_tensor)
   for column in sorted(set(feature_columns), key=lambda x: x.key):
     transformer.transform(column)

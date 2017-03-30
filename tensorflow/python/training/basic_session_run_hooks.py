@@ -195,11 +195,11 @@ class StopAtStepHook(session_run_hook.SessionRunHook):
     """Create a StopAtStep Hook.
 
     This hook requests stop after either a number of steps have been
-    executed or a last step has been reached.  Only of the two options can be
+    executed or a last step has been reached. Only one of the two options can be
     specified.
 
     if `num_steps` is specified, it indicates the number of steps to execute
-    after `begin()` is called.  If instead `last_step` is specified, it
+    after `begin()` is called. If instead `last_step` is specified, it
     indicates the last step we want to execute, as passed to the `after_run()`
     call.
 
@@ -277,9 +277,8 @@ class CheckpointSaverListener(object):
   right thing, similar to what CheckpointSaverHook.end() does using
   self._timer.last_triggered_step().
 
-  To use such listeners, pass them in the checkpoint_listeners argument to
-  graph_actions._monitored_train().  If using tf.Learn Estimators, create a
-  custom Estimator and override _get_checkpoint_listeners().
+  To use such listeners, in your `model_fn` return a `CheckpointSaverHook` as
+  part of `training_chief_hooks`.
   """
 
   def begin(self):

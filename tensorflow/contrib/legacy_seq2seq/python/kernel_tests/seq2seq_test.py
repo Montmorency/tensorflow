@@ -21,12 +21,6 @@ from __future__ import print_function
 import functools
 import math
 import random
-import sys
-
-# TODO: #6568 Remove this hack that makes dlopen() not crash.
-if hasattr(sys, "getdlopenflags") and hasattr(sys, "setdlopenflags"):
-  import ctypes
-  sys.setdlopenflags(sys.getdlopenflags() | ctypes.RTLD_GLOBAL)
 
 import numpy as np
 
@@ -211,24 +205,25 @@ class Seq2SeqTest(test.TestCase):
               num_decoder_symbols=5,
               embedding_size=2,
               feed_previous=constant_op.constant(True))
+        with variable_scope.variable_scope("other_2"):
+          d1, _ = seq2seq_lib.embedding_rnn_seq2seq(
+              enc_inp,
+              dec_inp,
+              cell_fn(),
+              num_encoder_symbols=2,
+              num_decoder_symbols=5,
+              embedding_size=2,
+              feed_previous=True)
+        with variable_scope.variable_scope("other_3"):
+          d2, _ = seq2seq_lib.embedding_rnn_seq2seq(
+              enc_inp,
+              dec_inp2,
+              cell_fn(),
+              num_encoder_symbols=2,
+              num_decoder_symbols=5,
+              embedding_size=2,
+              feed_previous=True)
         sess.run([variables.global_variables_initializer()])
-        variable_scope.get_variable_scope().reuse_variables()
-        d1, _ = seq2seq_lib.embedding_rnn_seq2seq(
-            enc_inp,
-            dec_inp,
-            cell_fn(),
-            num_encoder_symbols=2,
-            num_decoder_symbols=5,
-            embedding_size=2,
-            feed_previous=True)
-        d2, _ = seq2seq_lib.embedding_rnn_seq2seq(
-            enc_inp,
-            dec_inp2,
-            cell_fn(),
-            num_encoder_symbols=2,
-            num_decoder_symbols=5,
-            embedding_size=2,
-            feed_previous=True)
         res1 = sess.run(d1)
         res2 = sess.run(d2)
         res3 = sess.run(d3)
@@ -302,22 +297,23 @@ class Seq2SeqTest(test.TestCase):
               num_symbols=5,
               embedding_size=2,
               feed_previous=constant_op.constant(True))
+        with variable_scope.variable_scope("other_2"):
+          d1, _ = seq2seq_lib.embedding_tied_rnn_seq2seq(
+              enc_inp,
+              dec_inp,
+              cell(),
+              num_symbols=5,
+              embedding_size=2,
+              feed_previous=True)
+        with variable_scope.variable_scope("other_3"):
+          d2, _ = seq2seq_lib.embedding_tied_rnn_seq2seq(
+              enc_inp,
+              dec_inp2,
+              cell(),
+              num_symbols=5,
+              embedding_size=2,
+              feed_previous=True)
         sess.run([variables.global_variables_initializer()])
-        variable_scope.get_variable_scope().reuse_variables()
-        d1, _ = seq2seq_lib.embedding_tied_rnn_seq2seq(
-            enc_inp,
-            dec_inp,
-            cell(),
-            num_symbols=5,
-            embedding_size=2,
-            feed_previous=True)
-        d2, _ = seq2seq_lib.embedding_tied_rnn_seq2seq(
-            enc_inp,
-            dec_inp2,
-            cell(),
-            num_symbols=5,
-            embedding_size=2,
-            feed_previous=True)
         res1 = sess.run(d1)
         res2 = sess.run(d2)
         res3 = sess.run(d3)
@@ -459,37 +455,37 @@ class Seq2SeqTest(test.TestCase):
         self.assertEqual((2, 2), res[0][1].c.shape)
         self.assertEqual((2, 2), res[0][1].h.shape)
 
-    def testDynamicAttentionDecoderStateIsTuple(self):
-      with self.test_session() as sess:
-        with variable_scope.variable_scope(
-            "root", initializer=init_ops.constant_initializer(0.5)):
-          cell_fn = lambda: core_rnn_cell_impl.MultiRNNCell(  # pylint: disable=g-long-lambda
-              cells=[core_rnn_cell_impl.BasicLSTMCell(2) for _ in range(2)])
-          cell = cell_fn()
-          inp = constant_op.constant(0.5, shape=[2, 2, 2])
-          enc_outputs, enc_state = core_rnn.static_rnn(
-              cell, inp, dtype=dtypes.float32)
-          attn_states = array_ops.concat([
-              array_ops.reshape(e, [-1, 1, cell.output_size])
-              for e in enc_outputs
-          ], 1)
-          dec_inp = [constant_op.constant(0.4, shape=[2, 2])] * 3
+  def testDynamicAttentionDecoderStateIsTuple(self):
+    with self.test_session() as sess:
+      with variable_scope.variable_scope(
+          "root", initializer=init_ops.constant_initializer(0.5)):
+        cell_fn = lambda: core_rnn_cell_impl.MultiRNNCell(  # pylint: disable=g-long-lambda
+            cells=[core_rnn_cell_impl.BasicLSTMCell(2) for _ in range(2)])
+        cell = cell_fn()
+        inp = [constant_op.constant(0.5, shape=[2, 2])] * 2
+        enc_outputs, enc_state = core_rnn.static_rnn(
+            cell, inp, dtype=dtypes.float32)
+        attn_states = array_ops.concat([
+            array_ops.reshape(e, [-1, 1, cell.output_size])
+            for e in enc_outputs
+        ], 1)
+        dec_inp = [constant_op.constant(0.4, shape=[2, 2])] * 3
 
-          # Use a new cell instance since the attention decoder uses a
-          # different variable scope.
-          dec, mem = seq2seq_lib.attention_decoder(
-              dec_inp, enc_state, attn_states, cell_fn(), output_size=4)
-          sess.run([variables.global_variables_initializer()])
-          res = sess.run(dec)
-          self.assertEqual(3, len(res))
-          self.assertEqual((2, 4), res[0].shape)
+        # Use a new cell instance since the attention decoder uses a
+        # different variable scope.
+        dec, mem = seq2seq_lib.attention_decoder(
+            dec_inp, enc_state, attn_states, cell_fn(), output_size=4)
+        sess.run([variables.global_variables_initializer()])
+        res = sess.run(dec)
+        self.assertEqual(3, len(res))
+        self.assertEqual((2, 4), res[0].shape)
 
-          res = sess.run([mem])
-          self.assertEqual(2, len(res[0]))
-          self.assertEqual((2, 2), res[0][0].c.shape)
-          self.assertEqual((2, 2), res[0][0].h.shape)
-          self.assertEqual((2, 2), res[0][1].c.shape)
-          self.assertEqual((2, 2), res[0][1].h.shape)
+        res = sess.run([mem])
+        self.assertEqual(2, len(res[0]))
+        self.assertEqual((2, 2), res[0][0].c.shape)
+        self.assertEqual((2, 2), res[0][0].h.shape)
+        self.assertEqual((2, 2), res[0][1].c.shape)
+        self.assertEqual((2, 2), res[0][1].h.shape)
 
   def testEmbeddingAttentionDecoder(self):
     with self.test_session() as sess:
@@ -654,9 +650,15 @@ class Seq2SeqTest(test.TestCase):
                 i, dtypes.int32, shape=[2]) for i in range(4)
         ]
         dec_symbols_dict = {"0": 5, "1": 6}
-        cell = core_rnn_cell_impl.BasicLSTMCell(2, state_is_tuple=True)
+        def EncCellFn():
+          return core_rnn_cell_impl.BasicLSTMCell(2, state_is_tuple=True)
+        def DecCellsFn():
+          return dict(
+              (k, core_rnn_cell_impl.BasicLSTMCell(2, state_is_tuple=True))
+              for k in dec_symbols_dict)
         outputs_dict, state_dict = (seq2seq_lib.one2many_rnn_seq2seq(
-            enc_inp, dec_inp_dict, cell, 2, dec_symbols_dict, embedding_size=2))
+            enc_inp, dec_inp_dict, EncCellFn(), DecCellsFn(),
+            2, dec_symbols_dict, embedding_size=2))
 
         sess.run([variables.global_variables_initializer()])
         res = sess.run(outputs_dict["0"])
@@ -688,29 +690,33 @@ class Seq2SeqTest(test.TestCase):
           outputs_dict3, _ = seq2seq_lib.one2many_rnn_seq2seq(
               enc_inp,
               dec_inp_dict2,
-              cell,
+              EncCellFn(),
+              DecCellsFn(),
               2,
               dec_symbols_dict,
               embedding_size=2,
               feed_previous=constant_op.constant(True))
+        with variable_scope.variable_scope("other_2"):
+          outputs_dict1, _ = seq2seq_lib.one2many_rnn_seq2seq(
+              enc_inp,
+              dec_inp_dict,
+              EncCellFn(),
+              DecCellsFn(),
+              2,
+              dec_symbols_dict,
+              embedding_size=2,
+              feed_previous=True)
+        with variable_scope.variable_scope("other_3"):
+          outputs_dict2, _ = seq2seq_lib.one2many_rnn_seq2seq(
+              enc_inp,
+              dec_inp_dict2,
+              EncCellFn(),
+              DecCellsFn(),
+              2,
+              dec_symbols_dict,
+              embedding_size=2,
+              feed_previous=True)
         sess.run([variables.global_variables_initializer()])
-        variable_scope.get_variable_scope().reuse_variables()
-        outputs_dict1, _ = seq2seq_lib.one2many_rnn_seq2seq(
-            enc_inp,
-            dec_inp_dict,
-            cell,
-            2,
-            dec_symbols_dict,
-            embedding_size=2,
-            feed_previous=True)
-        outputs_dict2, _ = seq2seq_lib.one2many_rnn_seq2seq(
-            enc_inp,
-            dec_inp_dict2,
-            cell,
-            2,
-            dec_symbols_dict,
-            embedding_size=2,
-            feed_previous=True)
         res1 = sess.run(outputs_dict1["0"])
         res2 = sess.run(outputs_dict2["0"])
         res3 = sess.run(outputs_dict3["0"])
@@ -870,13 +876,13 @@ class Seq2SeqTest(test.TestCase):
 
         targets = [dec_inp[i + 1] for i in range(len(dec_inp) - 1)] + [0]
 
-        def SampledLoss(labels, inputs):
+        def SampledLoss(labels, logits):
           labels = array_ops.reshape(labels, [-1, 1])
           return nn_impl.sampled_softmax_loss(
               weights=w_t,
               biases=b,
               labels=labels,
-              inputs=inputs,
+              inputs=logits,
               num_sampled=8,
               num_classes=classes)
 
@@ -906,7 +912,7 @@ class Seq2SeqTest(test.TestCase):
       with variable_scope.variable_scope("root"):
         _, losses = SampleGRUSeq2Seq(inp, out, weights)
         updates = []
-        params = variables.all_variables()
+        params = variables.global_variables()
         optimizer = adam.AdamOptimizer(0.03, epsilon=1e-5)
         for i in range(len(buckets)):
           full_grads = gradients_impl.gradients(losses[i], params)
@@ -1001,7 +1007,7 @@ class Seq2SeqTest(test.TestCase):
 
         dec_op_fp_true, update_fp_true, variables_fp_true = ForwardBackward(
             enc_inp, dec_inp_fp_true, feed_previous=True)
-        dec_op_fp_false, update_fp_false, variables_fp_false = ForwardBackward(
+        _, update_fp_false, variables_fp_false = ForwardBackward(
             enc_inp, dec_inp_holder_fp_false, feed_previous=False)
 
         sess.run(variables.global_variables_initializer())
